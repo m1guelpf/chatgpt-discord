@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/m1guelpf/chatgpt-telegram/src/config"
-	"github.com/m1guelpf/chatgpt-telegram/src/expirymap"
-	"github.com/m1guelpf/chatgpt-telegram/src/sse"
+	"github.com/m1guelpf/chatgpt-discord/src/config"
+	"github.com/m1guelpf/chatgpt-discord/src/expirymap"
+	"github.com/m1guelpf/chatgpt-discord/src/sse"
 )
 
 const KEY_ACCESS_TOKEN = "accessToken"

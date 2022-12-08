@@ -7,4 +7,4 @@ build:
 	go build
 
 clean:
-	rm chatgpt-telegram
+	rm chatgpt-discord

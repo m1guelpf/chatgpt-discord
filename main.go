@@ -5,17 +5,19 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
-	"github.com/m1guelpf/chatgpt-telegram/src/chatgpt"
-	"github.com/m1guelpf/chatgpt-telegram/src/config"
-	"github.com/m1guelpf/chatgpt-telegram/src/markdown"
-	"github.com/m1guelpf/chatgpt-telegram/src/ratelimit"
-	"github.com/m1guelpf/chatgpt-telegram/src/session"
+	"github.com/m1guelpf/chatgpt-discord/src/auth"
+	"github.com/m1guelpf/chatgpt-discord/src/chatgpt"
+	"github.com/m1guelpf/chatgpt-discord/src/config"
+	"github.com/m1guelpf/chatgpt-discord/src/markdown"
+	"github.com/m1guelpf/chatgpt-discord/src/ratelimit"
+	"github.com/m1guelpf/chatgpt-discord/src/ref"
+	"github.com/m1guelpf/chatgpt-discord/src/session"
 )
 
 type Conversation struct {
@@ -49,138 +51,159 @@ func main() {
 		log.Fatalf("Couldn't load .env file: %v", err)
 	}
 
-	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_TOKEN"))
+	discord, err := discordgo.New("Bot " + os.Getenv("DISCORD_TOKEN"))
 	if err != nil {
-		log.Fatalf("Couldn't start Telegram bot: %v", err)
+		log.Fatalf("Couldn't start Discord bot: %v", err)
 	}
 
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		bot.StopReceivingUpdates()
+		discord.Close()
 		os.Exit(0)
 	}()
 
-	updateConfig := tgbotapi.NewUpdate(0)
-	updateConfig.Timeout = 30
-	updates := bot.GetUpdatesChan(updateConfig)
+	userConversations := make(map[string]Conversation)
 
-	log.Printf("Started Telegram bot! Message @%s to start.", bot.Self.UserName)
-
-	userConversations := make(map[int64]Conversation)
-
-	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-		msg.ReplyToMessageID = update.Message.MessageID
-		msg.ParseMode = "Markdown"
-
-		userId := strconv.FormatInt(update.Message.Chat.ID, 10)
-		if os.Getenv("TELEGRAM_ID") != "" && userId != os.Getenv("TELEGRAM_ID") {
-			msg.Text = "You are not authorized to use this bot."
-			bot.Send(msg)
-			continue
-		}
-
-		bot.Request(tgbotapi.NewChatAction(update.Message.Chat.ID, "typing"))
-		if !update.Message.IsCommand() {
-			feed, err := chatGPT.SendMessage(update.Message.Text, userConversations[update.Message.Chat.ID].ConversationID, userConversations[update.Message.Chat.ID].LastMessageID)
-			if err != nil {
-				msg.Text = fmt.Sprintf("Error: %v", err)
-			}
-
-			var message tgbotapi.Message
-			var lastResp string
-
-			debouncedType := ratelimit.Debounce((10 * time.Second), func() {
-				bot.Request(tgbotapi.NewChatAction(update.Message.Chat.ID, "typing"))
-			})
-			debouncedEdit := ratelimit.DebounceWithArgs((1 * time.Second), func(text interface{}, messageId interface{}) {
-				_, err = bot.Request(tgbotapi.EditMessageTextConfig{
-					BaseEdit: tgbotapi.BaseEdit{
-						ChatID:    msg.ChatID,
-						MessageID: messageId.(int),
-					},
-					Text:      text.(string),
-					ParseMode: "Markdown",
-				})
-
-				if err != nil {
-					if err.Error() == "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message" {
-						return
-					}
-
-					log.Printf("Couldn't edit message: %v", err)
-				}
-			})
-
-		pollResponse:
-			for {
-				debouncedType()
-
-				select {
-				case response, ok := <-feed:
-					if !ok {
-						break pollResponse
-					}
-
-					userConversations[update.Message.Chat.ID] = Conversation{
-						LastMessageID:  response.MessageId,
-						ConversationID: response.ConversationId,
-					}
-					lastResp = markdown.EnsureFormatting(response.Message)
-					msg.Text = lastResp
-
-					if message.MessageID == 0 {
-						message, err = bot.Send(msg)
-						if err != nil {
-							log.Fatalf("Couldn't send message: %v", err)
-						}
-					} else {
-						debouncedEdit(lastResp, message.MessageID)
-					}
-				}
-			}
-
-			_, err = bot.Request(tgbotapi.EditMessageTextConfig{
-				BaseEdit: tgbotapi.BaseEdit{
-					ChatID:    msg.ChatID,
-					MessageID: message.MessageID,
-				},
-				Text:      lastResp,
-				ParseMode: "Markdown",
-			})
-
-			if err != nil {
-				if err.Error() == "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message" {
-					continue
-				}
-
-				log.Printf("Couldn't perform final edit on message: %v", err)
-			}
-
-			continue
-		}
-
-		switch update.Message.Command() {
-		case "help":
-			msg.Text = "Send a message to start talking with ChatGPT. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
-		case "start":
-			msg.Text = "Send a message to start talking with ChatGPT. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
-		case "reload":
-			userConversations[update.Message.Chat.ID] = Conversation{}
-			msg.Text = "Started a new conversation. Enjoy!"
-		default:
-			continue
-		}
-
-		if _, err := bot.Send(msg); err != nil {
-			log.Printf("Couldn't send message: %v", err)
-			continue
-		}
+	// get app id
+	app, err := discord.Application("@me")
+	if err != nil {
+		log.Fatalf("Couldn't get app id: %v", err)
 	}
+
+	_, err = discord.ApplicationCommandCreate(app.ID, os.Getenv("DISCORD_GUILD_ID"), &discordgo.ApplicationCommand{
+		Name:         "reload",
+		Description:  "Start a new conversation.",
+		DMPermission: ref.Of(true),
+	})
+	if err != nil {
+		log.Fatalf("Couldn't create reload command: %v", err)
+	}
+
+	discord.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		if i.Type != discordgo.InteractionApplicationCommand {
+			return
+		}
+
+		if !auth.CanInteract(i.Member.User) {
+			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You are not authorized to use this bot.",
+				},
+			})
+			if err != nil {
+				log.Printf("Couldn't send message: %v", err)
+			}
+			return
+		}
+
+		if i.ApplicationCommandData().Name == "reload" {
+			userConversations[i.ChannelID] = Conversation{}
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Started a new conversation. Enjoy!",
+				},
+			})
+		}
+	})
+
+	discord.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		if m.Author.ID == s.State.User.ID {
+			return
+		}
+
+		if m.GuildID != "" && ((len(m.Mentions) == 0 || m.Mentions[0].ID != s.State.User.ID) || (m.ReferencedMessage != nil && m.ReferencedMessage.Author.ID != s.State.User.ID)) {
+			return
+		}
+
+		if !auth.CanInteract(m.Author) {
+			_, err := s.ChannelMessageSendReply(m.ChannelID, "You are not authorized to use this bot.", &discordgo.MessageReference{MessageID: m.ID})
+			if err != nil {
+				log.Printf("Couldn't send message: %v", err)
+			}
+			return
+		}
+
+		query := strings.TrimSpace(strings.ReplaceAll(m.Content, fmt.Sprintf("<@%s>", s.State.User.ID), ""))
+
+		feed, err := chatGPT.SendMessage(query, userConversations[m.ChannelID].ConversationID, userConversations[m.ChannelID].LastMessageID)
+		if err != nil {
+			_, err = s.ChannelMessageSendReply(m.ChannelID, fmt.Sprintf("Couldn't send message: %v", err), &discordgo.MessageReference{MessageID: m.ID})
+			if err != nil {
+				log.Printf("Couldn't send message: %v", err)
+			}
+		}
+
+		err = s.ChannelTyping(m.ChannelID)
+		if err != nil {
+			log.Printf("Couldn't start typing: %v", err)
+		}
+
+		var msg discordgo.Message
+		var lastResp string
+
+		debouncedType := ratelimit.Debounce((10 * time.Second), func() {
+			err = s.ChannelTyping(m.ChannelID)
+			if err != nil {
+				log.Printf("Couldn't start typing: %v", err)
+			}
+		})
+
+		debouncedEdit := ratelimit.DebounceWithArgs((1 * time.Second), func(text interface{}, messageId interface{}) {
+			_, err := s.ChannelMessageEdit(m.ChannelID, messageId.(string), text.(string))
+			if err != nil {
+				log.Printf("Couldn't edit message: %v", err)
+			}
+		})
+
+	pollResponse:
+		for {
+			select {
+			case response, ok := <-feed:
+				if !ok {
+					break pollResponse
+				}
+
+				userConversations[m.ChannelID] = Conversation{
+					LastMessageID:  response.MessageId,
+					ConversationID: response.ConversationId,
+				}
+
+				lastResp = markdown.EnsureFormatting(response.Message)
+
+				if msg.ID == "" {
+					_msg, err := s.ChannelMessageSendReply(m.ChannelID, lastResp, &discordgo.MessageReference{MessageID: m.ID})
+					if err != nil {
+						log.Printf("Couldn't send message: %v", err)
+					}
+					msg = *_msg
+				} else {
+					debouncedEdit(lastResp, msg.ID)
+				}
+
+				debouncedType()
+			}
+		}
+
+		_, err = s.ChannelMessageEdit(m.ChannelID, msg.ID, lastResp)
+		if err != nil {
+			log.Printf("Couldn't perform final edit: %v", err)
+		}
+	})
+
+	discord.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		log.Println("Started Discord bot.")
+		log.Printf("Add this bot to your server here: https://discord.com/api/oauth2/authorize?client_id=%s&permissions=2147484672&scope=bot%sapplications.commands", app.ID, "%20")
+	})
+
+	// start the bot
+	err = discord.Open()
+	if err != nil {
+		log.Fatalf("Couldn't start Discord bot: %v", err)
+	}
+
+	<-make(chan struct{})
 }

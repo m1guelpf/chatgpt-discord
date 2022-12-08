@@ -1,24 +1,22 @@
-# ChatGPT-bot
+# ChatGPT Discord Bot
 
-> Interact with ChatGPT
-
-Go CLI to fuels a Telegram bot that lets you interact with [ChatGPT](https://openai.com/blog/chatgpt/), a large language model trained by OpenAI.
+Go CLI to power a Discord bot letting you interact with [ChatGPT](https://openai.com/blog/chatgpt/), a large language model trained by OpenAI, collaboratively in Discord servers or privately in your DMs.
 
 ## Installation
 
-Download the file corresponding to your OS in the [releases page](https://github.com/m1guelpf/chatgpt-telegram/releases/latest):
+Download the file corresponding to your OS in the [releases page](https://github.com/m1guelpf/chatgpt-discord/releases/latest):
 
-- `chatgpt-telegram-Darwin-amd64`: macOS (Intel)
-- `chatgpt-telegram-Darwin-arm64`: macOS (M1)
-- `chatgpt-telegram-Linux-amd64`: Linux
-- `chatgpt-telegram-Linux-arm64`: Linux (ARM)
-- `chatgpt-telegram-Win-amd64`: Windows
+- `chatgpt-discord-Darwin-amd64`: macOS (Intel)
+- `chatgpt-discord-Darwin-arm64`: macOS (M1)
+- `chatgpt-discord-Linux-amd64`: Linux
+- `chatgpt-discord-Linux-arm64`: Linux (ARM)
+- `chatgpt-discord-Win-amd64`: Windows
 
-After you download the file, extract it into a folder and open the `env.example` file with a text editor and fill in your credentials. You'll need your bot token, which you can find [here](https://core.telegram.org/bots/tutorial#obtain-your-bot-token), and optionally your telegram id, which you can find by DMing `@userinfobot` on Telegram. Save the file, and rename it to `.env`.
+After you download the file, extract it into a folder and open the `env.example` file with a text editor and fill in your credentials. You'll need your bot token, which you can find [here](https://www.writebots.com/discord-bot-token/), and optionally (if you want to prevent anyone else from using the bot) your Discord username. Save the file, and rename it to `.env`.
 
 > **Note** Make sure you rename the file to _exactly_ `.env`! The program won't work otherwise.
 
-Finally, open the terminal in your computer (if you're on windows, look for `PowerShell`), navigate to the path you extracted the above file (you can use `cd dirname` to navigate to a directory, ask ChatGPT if you need more assistance 😉) and run `./chatgpt-telegram`.
+Finally, open the terminal in your computer (if you're on windows, look for `PowerShell`), navigate to the path you extracted the above file (you can use `cd dirname` to navigate to a directory, ask ChatGPT if you need more assistance 😉) and run `./chatgpt-discord`.
 
 ## Authentication
 
