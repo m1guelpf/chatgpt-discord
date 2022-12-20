@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"strings"
 
 	"github.com/m1guelpf/chatgpt-discord/src/config"
 	"github.com/m1guelpf/chatgpt-discord/src/expirymap"
@@ -64,6 +65,11 @@ func (c *ChatGPT) EnsureAuth() error {
 func (c *ChatGPT) SendMessage(message string, conversationId string, messageId string) (chan ChatResponse, error) {
 	r := make(chan ChatResponse)
 	accessToken, err := c.refreshAccessToken()
+
+	if strings.Contains(err, "failed to decode response: invalid character '<' looking for beginning of value") {
+		return nil, errors.new(fmt.Sprintf("Cloudflare protection has blocked your request: %v", err))
+	}
+
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Couldn't get access token: %v", err))
 	}
